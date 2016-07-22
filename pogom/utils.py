@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument('-l', '--location', type=parse_unicode, help='Location, can be an address or coordinates', required=True)
     parser.add_argument('-st', '--step-limit', help='Steps', required=True, type=int)
     parser.add_argument('-sd', '--scan-delay', help='Time delay before beginning new scan', required=False, type=int, default=1)
+    parser.add_argument('-dc','--display-in-console',help='Display Found Pokemon in Console',action='store_true',default=False)
     parser.add_argument('-H', '--host', help='Set web server listening host', default='127.0.0.1')
     parser.add_argument('-P', '--port', type=int, help='Set web server listening port', default=5000)
     parser.add_argument('-L', '--locale', help='Locale for Pokemon names: default en, check'
@@ -35,6 +36,7 @@ def get_args():
     parser.add_argument('-c', '--china', help='Coordinates transformer for China', action='store_true')
     parser.add_argument('-d', '--debug', help='Debug Mode', action='store_true')
     parser.add_argument('-m', '--mock', help='Mock mode. Starts the web server but not the background thread.', action='store_true', default=False)
+    parser.add_argument('-ns', '--no-server', help='No-Server Mode. Starts the searcher but not the Webserver.', action='store_true', default=False, dest='no_server')
     parser.add_argument('-k', '--google-maps-key', help='Google Maps Javascript API Key', default=None, dest='gmaps_key')
     parser.set_defaults(DEBUG=False)
     args = parser.parse_args()
