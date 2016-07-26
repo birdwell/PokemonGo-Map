@@ -35,7 +35,6 @@ var map_data = {
     lure_pokemons: {},
     scanned: {}
 };
-
 var gym_types = ["Uncontested", "Mystic", "Valor", "Instinct"];
 var audio = new Audio('static/sounds/ding.mp3');
 var pokemon_sprites = {
@@ -236,7 +235,7 @@ function initMap() {
               'style_pgo_nl']
         },
     });
-
+	
 	var style_NoLabels = new google.maps.StyledMapType(noLabelsStyle, {name: "No Labels"});
 	map.mapTypes.set('nolabels_style', style_NoLabels);
 
@@ -314,7 +313,6 @@ function createSearchMarker() {
 function initSidebar() {
     $('#gyms-switch').prop('checked', Store.get('showGyms'));
     $('#pokemon-switch').prop('checked', Store.get('showPokemon'));
-    $('#lured-pokemon-switch').prop('checked', Store.get('showLuredPokemon'));
     $('#pokestops-switch').prop('checked', Store.get('showPokestops'));
     $('#geoloc-switch').prop('checked', Store.get('geoLocate'));
     $('#scanned-switch').prop('checked', Store.get('showScanned'));
@@ -498,13 +496,18 @@ function getGoogleSprite(index, sprite, display_height) {
     };
 }
 
-function setupPokemonMarker(item) {
+function setupPokemonMarker(item, skipNotification, isBounceDisabled) {
 
     // Scale icon size up with the map exponentially
     var icon_size = 2 + (map.getZoom()-3) * (map.getZoom()-3) * .2 + Store.get('iconSizeModifier');
     var pokemon_index = item.pokemon_id - 1;
     var sprite = pokemon_sprites[Store.get('pokemonIcons')] || pokemon_sprites['highres']
     var icon = getGoogleSprite(pokemon_index, sprite, icon_size);
+
+    var animationDisabled = false;
+    if(isBounceDisabled == true){
+        animationDisabled = true;
+    }
 
     var marker = new google.maps.Marker({
         position: {
@@ -515,7 +518,13 @@ function setupPokemonMarker(item) {
         optimized: false,
         map: map,
         icon: icon,
+		animationDisabled: animationDisabled,
     });
+	
+	marker.addListener('click', function() {
+		this.setAnimation(null);
+		this.animationDisabled = true;
+	});
 
     marker.infoWindow = new google.maps.InfoWindow({
         content: pokemonLabel(item.pokemon_name, item.disappear_time, item.pokemon_id, item.latitude, item.longitude, item.encounter_id),
@@ -523,12 +532,15 @@ function setupPokemonMarker(item) {
     });
 
     if (notifiedPokemon.indexOf(item.pokemon_id) > -1) {
-        if (Store.get('playSound')) {
-          audio.play();
+        if (!skipNotification) {
+            if (Store.get('playSound')) {
+              audio.play();
+            }
+            sendNotification('A wild ' + item.pokemon_name + ' appeared!', 'Click to load map', 'static/icons/' + item.pokemon_id + '.png', item.latitude, item.longitude);
         }
-
-        sendNotification('A wild ' + item.pokemon_name + ' appeared!', 'Click to load map', 'static/icons/' + item.pokemon_id + '.png', item.latitude, item.longitude);
-        marker.setAnimation(google.maps.Animation.BOUNCE);
+		if (marker.animationDisabled != true){
+			marker.setAnimation(google.maps.Animation.BOUNCE);	
+		}
     }
 
     addListeners(marker);
@@ -657,7 +669,7 @@ function clearStaleMarkers() {
 
     $.each(map_data.lure_pokemons, function(key, value) {
 
-        if (map_data.lure_pokemons[key]['disappear_time'] < new Date().getTime() ||
+        if (map_data.lure_pokemons[key]['lure_expiration'] < new Date().getTime() ||
                 excludedPokemon.indexOf(map_data.lure_pokemons[key]['pokemon_id']) >= 0) {
             map_data.lure_pokemons[key].marker.setMap(null);
             delete map_data.lure_pokemons[key];
@@ -693,7 +705,7 @@ function clearOutOfBoundsMarkers(markers) {
 function loadRawData() {
     var loadPokemon = Store.get('showPokemon');
     var loadGyms = Store.get('showGyms');
-    var loadPokestops = Store.get('showPokestops') || Store.get('showLuredPokemon');
+    var loadPokestops = Store.get('showPokestops') || Store.get('showPokemon');
     var loadScanned = Store.get('showScanned');
 
     var bounds = map.getBounds();
@@ -757,7 +769,7 @@ function processPokestops(i, item) {
     else {
         item2 = map_data.pokestops[item.pokestop_id];
         if (!!item.lure_expiration != !!item2.lure_expiration || item.active_pokemon_id != item2.active_pokemon_id) {
-            item.marker.setMap(null);
+            item2.marker.setMap(null);
             item.marker = setupPokestopMarker(item);
             map_data.pokestops[item.pokestop_id] = item;
         }
@@ -765,36 +777,37 @@ function processPokestops(i, item) {
 }
 
 function processLuredPokemon(i, item) {
-    if (!Store.get('showLuredPokemon')) {
+    if (!Store.get('showPokemon')) {
         return false;
     }
-
-    var last_modified_date = new Date(item.last_modified);
-    var current_date = new Date();
-
-    var time_until_expire = current_date.getTime() - last_modified_date.getTime();
-
-    var expire_date = new Date(current_date.getTime() + time_until_expire);
-    var expire_time = expire_date.getTime();
-
-    var lured_pokemon = {
+    var item2 = {
         pokestop_id: item.pokestop_id,
+        lure_expiration: item.lure_expiration,
         pokemon_id: item.active_pokemon_id,
         latitude: item.latitude + 0.00005,
         longitude: item.longitude + 0.00005,
         pokemon_name: idToPokemon[item.active_pokemon_id],
-        disappear_time: expire_time
+        disappear_time: item.lure_expiration
     };
 
-    if (map_data.lure_pokemons[lured_pokemon.pokestop_id] == null) {
-        lured_pokemon.marker = setupPokemonMarker(lured_pokemon);
-        map_data.lure_pokemons[lured_pokemon.pokestop_id] = lured_pokemon;
-    } else if (lured_pokemon.active_pokemon_id !== map_data.lure_pokemons[lured_pokemon.pokestop_id].active_pokemon_id) {
-        map_data.lure_pokemons[lured_pokemon.pokestop_id].marker.setMap(null);
-
-        lured_pokemon.marker = setupPokemonMarker(lured_pokemon);
-        map_data.lure_pokemons[lured_pokemon.pokestop_id] = lured_pokemon;
+    if (item2.pokemon_id == null) {
+        return;
     }
+
+    if (map_data.lure_pokemons[item2.pokestop_id] == null && item2.lure_expiration) {
+        //if (item.marker) item.marker.setMap(null);
+        item2.marker = setupPokemonMarker(item2);
+        map_data.lure_pokemons[item2.pokestop_id] = item2;
+
+    }
+    if (map_data.lure_pokemons[item.pokestop_id] != null && item2.lure_expiration && item2.active_pokemon_id != map_data.lure_pokemons[item2.pokestop_id].active_pokemon_id) {
+        //if (item.marker) item.marker.setMap(null);
+        map_data.lure_pokemons[item2.pokestop_id].marker.setMap(null);
+        item2.marker = setupPokemonMarker(item2);
+        map_data.lure_pokemons[item2.pokestop_id] = item2;
+
+    }
+
 }
 
 function processGyms(i, item) {
@@ -860,9 +873,10 @@ function updateMap() {
 
 
 function redrawPokemon(pokemon_list) {
+    var skipNotification = true;
     $.each(pokemon_list, function(key, value) {
         var item =  pokemon_list[key];
-        var new_marker = setupPokemonMarker(item);
+        var new_marker = setupPokemonMarker(item, skipNotification, this.marker.animationDisabled);
         item.marker.setMap(null);
         pokemon_list[key].marker = new_marker;
     });
@@ -899,6 +913,9 @@ function getPointDistance(pointA, pointB) {
 }
 
 function sendNotification(title, text, icon, lat, lng) {
+    if (!("Notification" in window)) {
+        return false; // Notifications are not present in browser
+    }
     if (Notification.permission !== "granted") {
         Notification.requestPermission();
     } else {
@@ -1046,10 +1063,9 @@ $(function () {
     $.getJSON("static/locales/pokemon." + language + ".json").done(function(data) {
         var pokeList = []
 
-        idToPokemon = data;
-
         $.each(data, function(key, value) {
-            pokeList.push( { id: key, text: value } );
+            pokeList.push( { id: key, text: value + ' - #' + key } );
+            idToPokemon[key] = value;
         });
 
         // setup the filter lists
@@ -1120,7 +1136,6 @@ $(function () {
     // Setup UI element interactions
     $('#gyms-switch').change(buildSwitchChangeListener(map_data, "gyms", "showGyms"));
     $('#pokemon-switch').change(buildSwitchChangeListener(map_data, "pokemons", "showPokemon"));
-    $('#lured-pokemon-switch').change(buildSwitchChangeListener(map_data, "lure_pokemons", "showLuredPokemon"));
     $('#pokestops-switch').change(buildSwitchChangeListener(map_data, "pokestops", "showPokestops"));
     $('#scanned-switch').change(buildSwitchChangeListener(map_data, "scanned", "showScanned"));
 
